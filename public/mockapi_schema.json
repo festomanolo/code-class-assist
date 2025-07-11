@@ -1,0 +1,93 @@
+{
+  "students": [
+    {
+      "id": "S001",
+      "name": "Alice Johnson"
+    },
+    {
+      "id": "S002",
+      "name": "Bob Smith"
+    },
+    {
+      "id": "S003",
+      "name": "Carol Davis"
+    },
+    {
+      "id": "S004",
+      "name": "David Wilson"
+    },
+    {
+      "id": "S005",
+      "name": "Eva Brown"
+    }
+  ],
+  "tutorials": [
+    {
+      "id": "TUT001",
+      "title": "Introduction to JavaScript Variables",
+      "steps": [
+        "Step 1: Understanding Variables - Variables are containers that store data values...",
+        "Step 2: Variable Types - JavaScript has several data types: strings, numbers, booleans...",
+        "Step 3: Working with Variables - You can perform operations with variables...",
+        "Step 4: Challenge Exercise - Create a program that uses variables..."
+      ]
+    },
+    {
+      "id": "TUT002",
+      "title": "JavaScript Functions and Loops",
+      "steps": [
+        "Step 1: Creating Functions - Functions are reusable blocks of code...",
+        "Step 2: For Loops - Loops allow you to repeat code multiple times...",
+        "Step 3: While Loops - While loops continue as long as a condition is true...",
+        "Step 4: Combining Functions and Loops - Create complex programs..."
+      ]
+    }
+  ],
+  "studentProgress": [
+    {
+      "studentId": "S001",
+      "tutorialId": "TUT001",
+      "currentStep": 2
+    },
+    {
+      "studentId": "S002",
+      "tutorialId": "TUT001",
+      "currentStep": 1
+    },
+    {
+      "studentId": "S003",
+      "tutorialId": "TUT002",
+      "currentStep": 0
+    }
+  ],
+  "codeLogs": [
+    {
+      "studentId": "S001",
+      "code": "let name = 'Alice';\nconsole.log('Hello, ' + name);",
+      "timestamp": "2025-07-11T10:15:00Z",
+      "isSubmission": false
+    },
+    {
+      "studentId": "S002",
+      "code": "let x = 10;\nlet y = 5;\nlet sum = x + y;\nconsole.log(sum);",
+      "timestamp": "2025-07-11T10:20:00Z",
+      "isSubmission": true
+    }
+  ],
+  "helpRequests": [
+    {
+      "id": "1",
+      "studentId": "S001",
+      "message": "I don't understand how to concatenate strings",
+      "response": "You can use the + operator to join strings together. For example: 'Hello' + ' ' + 'World'",
+      "timestamp": "2025-07-11T10:10:00Z",
+      "responseTimestamp": "2025-07-11T10:12:00Z"
+    },
+    {
+      "id": "2",
+      "studentId": "S003",
+      "message": "What's the difference between let and const?",
+      "timestamp": "2025-07-11T10:18:00Z"
+    }
+  ]
+}
