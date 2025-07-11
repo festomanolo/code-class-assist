@@ -14,7 +14,283 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      code_logs: {
+        Row: {
+          code: string
+          id: string
+          is_submission: boolean
+          session_id: string | null
+          step_number: number | null
+          student_id: string
+          timestamp: string
+          tutorial_id: string | null
+        }
+        Insert: {
+          code: string
+          id?: string
+          is_submission?: boolean
+          session_id?: string | null
+          step_number?: number | null
+          student_id: string
+          timestamp?: string
+          tutorial_id?: string | null
+        }
+        Update: {
+          code?: string
+          id?: string
+          is_submission?: boolean
+          session_id?: string | null
+          step_number?: number | null
+          student_id?: string
+          timestamp?: string
+          tutorial_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "code_logs_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "code_logs_tutorial_id_fkey"
+            columns: ["tutorial_id"]
+            isOneToOne: false
+            referencedRelation: "tutorials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      error_logs: {
+        Row: {
+          context: Json | null
+          created_at: string
+          error_message: string
+          error_stack: string | null
+          id: string
+          resolved: boolean
+          student_id: string
+        }
+        Insert: {
+          context?: Json | null
+          created_at?: string
+          error_message: string
+          error_stack?: string | null
+          id?: string
+          resolved?: boolean
+          student_id: string
+        }
+        Update: {
+          context?: Json | null
+          created_at?: string
+          error_message?: string
+          error_stack?: string | null
+          id?: string
+          resolved?: boolean
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "error_logs_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      help_requests: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          responded_at: string | null
+          response: string | null
+          status: string
+          student_id: string
+          teacher_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          responded_at?: string | null
+          response?: string | null
+          status?: string
+          student_id: string
+          teacher_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          responded_at?: string | null
+          response?: string | null
+          status?: string
+          student_id?: string
+          teacher_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "help_requests_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "help_requests_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          student_id: string | null
+          updated_at: string
+          user_id: string
+          user_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          student_id?: string | null
+          updated_at?: string
+          user_id: string
+          user_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          student_id?: string | null
+          updated_at?: string
+          user_id?: string
+          user_type?: string
+        }
+        Relationships: []
+      }
+      student_progress: {
+        Row: {
+          completed_steps: number[] | null
+          current_step: number
+          id: string
+          started_at: string
+          student_id: string
+          tutorial_id: string
+          updated_at: string
+        }
+        Insert: {
+          completed_steps?: number[] | null
+          current_step?: number
+          id?: string
+          started_at?: string
+          student_id: string
+          tutorial_id: string
+          updated_at?: string
+        }
+        Update: {
+          completed_steps?: number[] | null
+          current_step?: number
+          id?: string
+          started_at?: string
+          student_id?: string
+          tutorial_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_progress_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "student_progress_tutorial_id_fkey"
+            columns: ["tutorial_id"]
+            isOneToOne: false
+            referencedRelation: "tutorials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_sessions: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          last_activity: string
+          session_end: string | null
+          session_start: string
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_activity?: string
+          session_end?: string | null
+          session_start?: string
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_activity?: string
+          session_end?: string | null
+          session_start?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_sessions_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      tutorials: {
+        Row: {
+          created_at: string
+          id: string
+          steps: Json
+          title: string
+          tutorial_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          steps?: Json
+          title: string
+          tutorial_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          steps?: Json
+          title?: string
+          tutorial_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

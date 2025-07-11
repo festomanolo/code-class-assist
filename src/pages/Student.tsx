@@ -1,33 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, ArrowRight, Send, Code, Book, HelpCircle, CheckCircle, User, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { APIService } from '@/services/api';
-
-interface Tutorial {
-  id: string;
-  title: string;
-  steps: string[];
-}
-
-interface StudentProgress {
-  studentId: string;
-  tutorialId: string;
-  currentStep: number;
-}
-
-interface HelpRequest {
-  studentId: string;
-  message: string;
-  response?: string;
-  timestamp: string;
-}
+import { supabase } from '@/integrations/supabase/client';
+import { supabaseService } from '@/services/supabaseService';
+import type { Tutorial, StudentProgress, HelpRequest, Profile } from '@/services/supabaseService';
 
 const Student = () => {
-  const [studentId, setStudentId] = useState('');
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [currentTutorial, setCurrentTutorial] = useState<Tutorial | null>(null);
   const [tutorials, setTutorials] = useState<Tutorial[]>([]);
   const [progress, setProgress] = useState<StudentProgress | null>(null);
@@ -36,66 +19,114 @@ const Student = () => {
   const [helpRequests, setHelpRequests] = useState<HelpRequest[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [codeAutoSaving, setCodeAutoSaving] = useState(false);
+  const [sessionId, setSessionId] = useState<string>('');
   const { toast } = useToast();
+  const subscriptionRef = useRef<any>(null);
 
   useEffect(() => {
-    // Check if user is logged in
-    const userId = localStorage.getItem('smartAssist_userId');
-    const userType = localStorage.getItem('smartAssist_userType');
-    
-    if (!userId || userType !== 'student') {
-      window.location.href = '/';
-      return;
-    }
-    
-    setStudentId(userId);
-    loadData(userId);
+    // Check authentication and load data
+    const initializeStudent = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        window.location.href = '/';
+        return;
+      }
+      
+      await loadData();
+      setupRealtimeSubscription();
+    };
+
+    initializeStudent();
     
     // Set up auto-save for code every 5 seconds
     const autoSaveInterval = setInterval(() => {
       if (currentCode.trim()) {
-        autoSaveCode(userId);
+        autoSaveCode();
       }
     }, 5000);
     
-    // Set up polling for help responses every 5 seconds
-    const pollInterval = setInterval(() => {
-      loadHelpRequests(userId);
-    }, 5000);
+    // Set up activity heartbeat
+    const activityInterval = setInterval(() => {
+      supabaseService.updateLastActivity();
+    }, 30000); // Update every 30 seconds
     
     return () => {
       clearInterval(autoSaveInterval);
-      clearInterval(pollInterval);
+      clearInterval(activityInterval);
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+      }
+      // End session when component unmounts
+      if (sessionId) {
+        supabaseService.endSession(sessionId);
+      }
     };
-  }, [currentCode]);
+  }, [currentCode, sessionId]);
 
-  const loadData = async (userId: string) => {
+  const setupRealtimeSubscription = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    subscriptionRef.current = supabaseService.subscribeToUserData(
+      user.id,
+      (payload) => {
+        if (payload.table === 'help_requests') {
+          loadHelpRequests();
+        }
+      }
+    );
+  };
+
+  const loadData = async () => {
     setIsLoading(true);
     try {
+      // Load profile
+      const profileData = await supabaseService.getProfile();
+      setProfile(profileData);
+      
+      if (profileData?.user_type !== 'student') {
+        window.location.href = '/';
+        return;
+      }
+      
+      // Create session
+      const newSessionId = await supabaseService.createSession();
+      setSessionId(newSessionId);
+      
       // Load tutorials
-      const tutorialsData = await APIService.getTutorials();
+      const tutorialsData = await supabaseService.getTutorials();
       setTutorials(tutorialsData);
       
-      // Load student progress
-      const progressData = await APIService.getStudentProgress(userId);
-      setProgress(progressData);
-      
-      // Load current tutorial
-      if (progressData && tutorialsData.length > 0) {
-        const tutorial = tutorialsData.find(t => t.id === progressData.tutorialId) || tutorialsData[0];
-        setCurrentTutorial(tutorial);
+      if (tutorialsData.length > 0) {
+        const firstTutorial = tutorialsData[0];
+        setCurrentTutorial(firstTutorial);
         
-        // If no progress exists, create initial progress
-        if (!progressData) {
-          await APIService.updateStudentProgress(userId, tutorial.id, 0);
-          setProgress({ studentId: userId, tutorialId: tutorial.id, currentStep: 0 });
+        // Load student progress for first tutorial
+        const progressData = await supabaseService.getStudentProgress(firstTutorial.id);
+        
+        if (progressData) {
+          setProgress(progressData);
+        } else {
+          // Create initial progress
+          await supabaseService.updateStudentProgress(firstTutorial.id, 0);
+          setProgress({
+            id: '',
+            student_id: profileData.user_id,
+            tutorial_id: firstTutorial.id,
+            current_step: 0,
+            completed_steps: [],
+            started_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
         }
       }
       
       // Load help requests
-      await loadHelpRequests(userId);
+      await loadHelpRequests();
       
     } catch (error) {
+      console.error('Error loading data:', error);
+      await supabaseService.logError('Failed to load student data', error.message);
       toast({
         title: "Error Loading Data",
         description: "Failed to load tutorials and progress",
@@ -106,19 +137,27 @@ const Student = () => {
     }
   };
 
-  const loadHelpRequests = async (userId: string) => {
+  const loadHelpRequests = async () => {
     try {
-      const requests = await APIService.getHelpRequests(userId);
+      const requests = await supabaseService.getHelpRequests();
       setHelpRequests(requests);
     } catch (error) {
       console.error('Failed to load help requests:', error);
     }
   };
 
-  const autoSaveCode = async (userId: string) => {
+  const autoSaveCode = async () => {
+    if (!currentTutorial || !progress) return;
+    
     setCodeAutoSaving(true);
     try {
-      await APIService.saveCodeLog(userId, currentCode);
+      await supabaseService.saveCodeLog(
+        currentCode,
+        false,
+        currentTutorial.id,
+        progress.current_step,
+        sessionId
+      );
     } catch (error) {
       console.error('Failed to auto-save code:', error);
     } finally {
@@ -129,14 +168,16 @@ const Student = () => {
   const handleNextStep = async () => {
     if (!currentTutorial || !progress) return;
     
-    const nextStep = progress.currentStep + 1;
-    if (nextStep < currentTutorial.steps.length) {
+    const steps = Array.isArray(currentTutorial.steps) ? currentTutorial.steps : [];
+    const nextStep = progress.current_step + 1;
+    
+    if (nextStep < steps.length) {
       try {
-        await APIService.updateStudentProgress(studentId, progress.tutorialId, nextStep);
-        setProgress({ ...progress, currentStep: nextStep });
+        await supabaseService.updateStudentProgress(currentTutorial.id, nextStep);
+        setProgress({ ...progress, current_step: nextStep });
         toast({
           title: "Progress Saved",
-          description: `Moved to step ${nextStep + 1} of ${currentTutorial.steps.length}`,
+          description: `Moved to step ${nextStep + 1} of ${steps.length}`,
         });
       } catch (error) {
         toast({
@@ -151,11 +192,11 @@ const Student = () => {
   const handlePrevStep = async () => {
     if (!currentTutorial || !progress) return;
     
-    const prevStep = progress.currentStep - 1;
+    const prevStep = progress.current_step - 1;
     if (prevStep >= 0) {
       try {
-        await APIService.updateStudentProgress(studentId, progress.tutorialId, prevStep);
-        setProgress({ ...progress, currentStep: prevStep });
+        await supabaseService.updateStudentProgress(currentTutorial.id, prevStep);
+        setProgress({ ...progress, current_step: prevStep });
         toast({
           title: "Progress Updated",
           description: `Moved back to step ${prevStep + 1}`,
@@ -181,7 +222,13 @@ const Student = () => {
     }
     
     try {
-      await APIService.saveCodeLog(studentId, currentCode, true);
+      await supabaseService.saveCodeLog(
+        currentCode,
+        true,
+        currentTutorial?.id,
+        progress?.current_step,
+        sessionId
+      );
       toast({
         title: "Code Submitted",
         description: "Your code has been submitted for review",
@@ -206,9 +253,9 @@ const Student = () => {
     }
     
     try {
-      await APIService.createHelpRequest(studentId, helpMessage);
+      await supabaseService.createHelpRequest(helpMessage);
       setHelpMessage('');
-      await loadHelpRequests(studentId);
+      await loadHelpRequests();
       toast({
         title: "Help Request Sent",
         description: "Your teacher will respond soon",
@@ -222,10 +269,15 @@ const Student = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('smartAssist_userType');
-    localStorage.removeItem('smartAssist_userId');
-    window.location.href = '/';
+  const handleLogout = async () => {
+    try {
+      if (sessionId) {
+        await supabaseService.endSession(sessionId);
+      }
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   if (isLoading) {
@@ -250,7 +302,9 @@ const Student = () => {
             </div>
             <div>
               <h1 className="font-semibold">Student Portal</h1>
-              <p className="text-sm text-muted-foreground">ID: {studentId}</p>
+              <p className="text-sm text-muted-foreground">
+                {profile?.name} ({profile?.student_id})
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -282,12 +336,14 @@ const Student = () => {
                       <div>
                         <CardTitle className="text-lg">{currentTutorial.title}</CardTitle>
                         <CardDescription>
-                          Step {progress.currentStep + 1} of {currentTutorial.steps.length}
+                          Step {progress.current_step + 1} of {Array.isArray(currentTutorial.steps) ? currentTutorial.steps.length : 0}
                         </CardDescription>
                       </div>
                     </div>
                     <Badge className="smart-badge-primary">
-                      {Math.round(((progress.currentStep + 1) / currentTutorial.steps.length) * 100)}% Complete
+                      {Array.isArray(currentTutorial.steps) && currentTutorial.steps.length > 0
+                        ? Math.round(((progress.current_step + 1) / currentTutorial.steps.length) * 100)
+                        : 0}% Complete
                     </Badge>
                   </div>
                 </CardHeader>
@@ -295,7 +351,9 @@ const Student = () => {
                   <div className="bg-muted rounded-lg p-4">
                     <div className="prose prose-sm max-w-none">
                       <div dangerouslySetInnerHTML={{ 
-                        __html: currentTutorial.steps[progress.currentStep].replace(/\n/g, '<br>')
+                        __html: Array.isArray(currentTutorial.steps) && currentTutorial.steps[progress.current_step]
+                          ? String(currentTutorial.steps[progress.current_step]).replace(/\n/g, '<br>')
+                          : 'No content available'
                       }} />
                     </div>
                   </div>
@@ -304,7 +362,7 @@ const Student = () => {
                     <Button
                       variant="outline"
                       onClick={handlePrevStep}
-                      disabled={progress.currentStep === 0}
+                      disabled={progress.current_step === 0}
                       className="flex items-center gap-2"
                     >
                       <ArrowLeft className="h-4 w-4" />
@@ -312,11 +370,11 @@ const Student = () => {
                     </Button>
                     
                     <div className="flex gap-2">
-                      {currentTutorial.steps.map((_, index) => (
+                      {Array.isArray(currentTutorial.steps) && currentTutorial.steps.map((_, index) => (
                         <div
                           key={index}
                           className={`w-2 h-2 rounded-full ${
-                            index <= progress.currentStep ? 'bg-primary' : 'bg-muted'
+                            index <= progress.current_step ? 'bg-primary' : 'bg-muted'
                           }`}
                         />
                       ))}
@@ -324,7 +382,7 @@ const Student = () => {
                     
                     <Button
                       onClick={handleNextStep}
-                      disabled={progress.currentStep === currentTutorial.steps.length - 1}
+                      disabled={!Array.isArray(currentTutorial.steps) || progress.current_step === currentTutorial.steps.length - 1}
                       className="smart-button-primary flex items-center gap-2"
                     >
                       Next
@@ -410,11 +468,11 @@ console.log('Hello, World!');"
                   </p>
                 ) : (
                   helpRequests.map((request, index) => (
-                    <div key={index} className="space-y-2 p-3 bg-muted rounded-lg">
+                    <div key={request.id || index} className="space-y-2 p-3 bg-muted rounded-lg">
                       <div className="flex items-start justify-between">
                         <p className="text-sm font-medium">You:</p>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(request.timestamp).toLocaleTimeString()}
+                          {new Date(request.created_at).toLocaleTimeString()}
                         </span>
                       </div>
                       <p className="text-sm">{request.message}</p>

@@ -1,49 +1,68 @@
-import { useState } from 'react';
-import { Users, GraduationCap, BookOpen, MessageSquare, Code, BarChart3 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Users, GraduationCap, BookOpen, MessageSquare, Code, BarChart3, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { supabaseService } from '@/services/supabaseService';
 import { useToast } from '@/hooks/use-toast';
+import type { Profile } from '@/services/supabaseService';
 
 const Index = () => {
-  const [userType, setUserType] = useState<'student' | 'teacher' | null>(null);
-  const [userId, setUserId] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
   const { toast } = useToast();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleLogin = async (type: 'student' | 'teacher') => {
-    if (!userId.trim()) {
-      toast({
-        title: "ID Required",
-        description: "Please enter your ID to continue",
-        variant: "destructive"
-      });
-      return;
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const profileData = await supabaseService.getProfile();
+      setProfile(profileData);
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    } finally {
+      setLoading(false);
     }
-
-    setIsLoading(true);
-    
-    // Simulate login process
-    setTimeout(() => {
-      localStorage.setItem('smartAssist_userType', type);
-      localStorage.setItem('smartAssist_userId', userId);
-      
-      toast({
-        title: "Login Successful",
-        description: `Welcome to Smart Assistance!`,
-      });
-      
-      // Redirect to appropriate page
-      if (type === 'student') {
-        window.location.href = '/student';
-      } else {
-        window.location.href = '/teacher';
-      }
-      
-      setIsLoading(false);
-    }, 1000);
   };
+
+  const handleRoleSelection = (role: string) => {
+    if (role === 'student') {
+      navigate('/student');
+    } else {
+      navigate('/teacher');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      toast({
+        title: "Logged Out",
+        description: "You have been successfully logged out.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to log out.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading profile...</p>
+        </div>
+      </div>
+    );
+  }
 
   const features = [
     {
@@ -102,86 +121,82 @@ const Index = () => {
           ))}
         </div>
 
-        {/* Login Section */}
+        {/* Welcome Section */}
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold mb-2">Choose Your Role</h2>
-            <p className="text-muted-foreground">Select whether you're a student or teacher to get started</p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* Student Login */}
-            <Card className={`smart-card cursor-pointer transition-all duration-300 ${
-              userType === 'student' ? 'ring-2 ring-primary shadow-lg' : 'hover:shadow-md'
-            }`} onClick={() => setUserType('student')}>
-              <CardHeader className="text-center">
-                <div className="mx-auto p-4 bg-primary/10 rounded-full w-16 h-16 flex items-center justify-center mb-4">
-                  <Users className="h-8 w-8 text-primary" />
+          <Card className="smart-card">
+            <CardHeader className="text-center">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <CardTitle className="text-2xl mb-2">
+                    Welcome, {profile?.name}!
+                  </CardTitle>
+                  <CardDescription>
+                    {profile?.user_type === 'student' 
+                      ? `Student ID: ${profile.student_id}`
+                      : 'Teacher Dashboard'
+                    }
+                  </CardDescription>
                 </div>
-                <CardTitle className="text-xl">Student Portal</CardTitle>
-                <CardDescription>
-                  Access tutorials, submit code exercises, and get help from teachers
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="student-id">Student ID</Label>
-                  <Input
-                    id="student-id"
-                    placeholder="Enter your student ID (e.g., S001)"
-                    value={userType === 'student' ? userId : ''}
-                    onChange={(e) => {
-                      if (userType === 'student') setUserId(e.target.value);
-                    }}
-                    className="smart-input"
-                  />
-                </div>
-                <Button 
-                  className="w-full smart-button-primary"
-                  onClick={() => handleLogin('student')}
-                  disabled={isLoading || userType !== 'student' || !userId.trim()}
+                <Button
+                  variant="outline"
+                  onClick={handleLogout}
+                  className="flex items-center gap-2"
                 >
-                  {isLoading && userType === 'student' ? 'Logging in...' : 'Enter as Student'}
+                  <LogOut className="h-4 w-4" />
+                  Logout
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-2 gap-6">
+                {profile?.user_type === 'student' && (
+                  <Card 
+                    className="smart-card cursor-pointer hover:shadow-md transition-all duration-300"
+                    onClick={() => handleRoleSelection('student')}
+                  >
+                    <CardContent className="p-6 text-center">
+                      <div className="mx-auto p-4 bg-primary/10 rounded-full w-16 h-16 flex items-center justify-center mb-4">
+                        <Users className="h-8 w-8 text-primary" />
+                      </div>
+                      <h3 className="font-semibold mb-2">Continue Learning</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Access your tutorials and continue your coding journey
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {profile?.user_type === 'teacher' && (
+                  <Card 
+                    className="smart-card cursor-pointer hover:shadow-md transition-all duration-300"
+                    onClick={() => handleRoleSelection('teacher')}
+                  >
+                    <CardContent className="p-6 text-center">
+                      <div className="mx-auto p-4 bg-accent/10 rounded-full w-16 h-16 flex items-center justify-center mb-4">
+                        <GraduationCap className="h-8 w-8 text-accent" />
+                      </div>
+                      <h3 className="font-semibold mb-2">Teacher Dashboard</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Monitor students, respond to help requests, and track progress
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
 
-            {/* Teacher Login */}
-            <Card className={`smart-card cursor-pointer transition-all duration-300 ${
-              userType === 'teacher' ? 'ring-2 ring-accent shadow-lg' : 'hover:shadow-md'
-            }`} onClick={() => setUserType('teacher')}>
-              <CardHeader className="text-center">
-                <div className="mx-auto p-4 bg-accent/10 rounded-full w-16 h-16 flex items-center justify-center mb-4">
-                  <GraduationCap className="h-8 w-8 text-accent" />
-                </div>
-                <CardTitle className="text-xl">Teacher Dashboard</CardTitle>
-                <CardDescription>
-                  Monitor student progress, respond to help requests, and track learning
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="teacher-id">Teacher ID</Label>
-                  <Input
-                    id="teacher-id"
-                    placeholder="Enter your teacher ID (e.g., T001)"
-                    value={userType === 'teacher' ? userId : ''}
-                    onChange={(e) => {
-                      if (userType === 'teacher') setUserId(e.target.value);
-                    }}
-                    className="smart-input"
-                  />
-                </div>
-                <Button 
-                  className="w-full smart-button-accent"
-                  onClick={() => handleLogin('teacher')}
-                  disabled={isLoading || userType !== 'teacher' || !userId.trim()}
-                >
-                  {isLoading && userType === 'teacher' ? 'Logging in...' : 'Enter as Teacher'}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+                <Card className="smart-card">
+                  <CardContent className="p-6 text-center">
+                    <div className="mx-auto p-4 bg-secondary/10 rounded-full w-16 h-16 flex items-center justify-center mb-4">
+                      <BookOpen className="h-8 w-8 text-secondary" />
+                    </div>
+                    <h3 className="font-semibold mb-2">Documentation</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Learn more about using Smart Assistance effectively
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Footer */}
