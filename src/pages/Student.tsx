@@ -476,7 +476,7 @@ console.log('Hello, World!');"
                         </span>
                       </div>
                       <p className="text-sm">{request.message}</p>
-                      {request.response && (
+                      {request.status === 'responded' && request.response && (
                         <>
                           <div className="flex items-center gap-2 mt-3">
                             <CheckCircle className="h-4 w-4 text-success" />
