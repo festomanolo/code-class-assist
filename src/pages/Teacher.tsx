@@ -7,42 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { APIService } from '@/services/api';
-
-interface Student {
-  id: string;
-  name: string;
-}
-
-interface Tutorial {
-  id: string;
-  title: string;
-  steps: string[];
-}
-
-interface StudentProgress {
-  studentId: string;
-  tutorialId: string;
-  currentStep: number;
-}
-
-interface CodeLog {
-  studentId: string;
-  code: string;
-  timestamp: string;
-  isSubmission?: boolean;
-}
-
-interface HelpRequest {
-  id: string;
-  studentId: string;
-  message: string;
-  response?: string;
-  timestamp: string;
-}
+import { supabaseService, type Profile, type HelpRequest, type CodeLog, type StudentProgress, type Tutorial } from '@/services/supabaseService';
+import { supabase } from '@/integrations/supabase/client';
 
 interface StudentDashboardData {
-  student: Student;
+  student: Profile;
   progress: StudentProgress | null;
   tutorial: Tutorial | null;
   latestCode: CodeLog | null;
@@ -50,8 +19,8 @@ interface StudentDashboardData {
 }
 
 const Teacher = () => {
-  const [teacherId, setTeacherId] = useState('');
-  const [students, setStudents] = useState<Student[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [students, setStudents] = useState<Profile[]>([]);
   const [tutorials, setTutorials] = useState<Tutorial[]>([]);
   const [dashboardData, setDashboardData] = useState<StudentDashboardData[]>([]);
   const [filterTutorial, setFilterTutorial] = useState<string>('all');
@@ -64,34 +33,44 @@ const Teacher = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check if user is logged in
-    const userId = localStorage.getItem('smartAssist_userId');
-    const userType = localStorage.getItem('smartAssist_userType');
-    
-    if (!userId || userType !== 'teacher') {
-      window.location.href = '/';
-      return;
-    }
-    
-    setTeacherId(userId);
+    loadUserProfile();
     loadInitialData();
     
-    // Set up polling every 5 seconds
-    const pollInterval = setInterval(() => {
+    // Set up real-time subscriptions
+    const subscription = supabaseService.subscribeToTeacherData((payload) => {
+      setLastUpdate(new Date());
       loadDashboardData();
-    }, 5000);
+    });
     
-    return () => clearInterval(pollInterval);
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      const userProfile = await supabaseService.getProfile();
+      if (!userProfile || userProfile.user_type !== 'teacher') {
+        window.location.href = '/auth';
+        return;
+      }
+      setProfile(userProfile);
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      window.location.href = '/auth';
+    }
+  };
 
   const loadInitialData = async () => {
     setIsLoading(true);
     try {
-      const [studentsData, tutorialsData] = await Promise.all([
-        APIService.getStudents(),
-        APIService.getTutorials()
+      const [allProfiles, tutorialsData] = await Promise.all([
+        supabaseService.getAllProfiles(),
+        supabaseService.getTutorials()
       ]);
       
+      // Filter only students
+      const studentsData = allProfiles.filter(p => p.user_type === 'student');
       setStudents(studentsData);
       setTutorials(tutorialsData);
       
@@ -109,19 +88,22 @@ const Teacher = () => {
 
   const loadDashboardData = async () => {
     try {
-      const [studentsData, tutorialsData, allProgress, allCodeLogs, allHelpRequests] = await Promise.all([
-        APIService.getStudents(),
-        APIService.getTutorials(),
-        APIService.getAllStudentProgress(),
-        APIService.getAllLatestCodeLogs(),
-        APIService.getAllHelpRequests()
+      const [allProfiles, tutorialsData, allProgress, allCodeLogs, allHelpRequests] = await Promise.all([
+        supabaseService.getAllProfiles(),
+        supabaseService.getTutorials(),
+        supabaseService.getAllStudentProgress(),
+        supabaseService.getLatestCodeLogs(),
+        supabaseService.getHelpRequests()
       ]);
 
+      // Filter only students
+      const studentsData = allProfiles.filter(p => p.user_type === 'student');
+
       const dashboardEntries: StudentDashboardData[] = studentsData.map(student => {
-        const progress = allProgress.find(p => p.studentId === student.id) || null;
-        const tutorial = progress ? tutorialsData.find(t => t.id === progress.tutorialId) || null : null;
-        const latestCode = allCodeLogs[student.id] || null;
-        const helpRequests = allHelpRequests.filter(req => req.studentId === student.id);
+        const progress = allProgress.find(p => p.student_id === student.user_id) || null;
+        const tutorial = progress ? tutorialsData.find(t => t.id === progress.tutorial_id) || null : null;
+        const latestCode = allCodeLogs[student.user_id] || null;
+        const helpRequests = allHelpRequests.filter(req => req.student_id === student.user_id);
 
         return {
           student,
@@ -150,7 +132,7 @@ const Teacher = () => {
     }
 
     try {
-      await APIService.respondToHelpRequest(requestId, responseMessage);
+      await supabaseService.respondToHelpRequest(requestId, responseMessage);
       setResponseMessage('');
       setRespondingToRequest(null);
       await loadDashboardData();
@@ -168,17 +150,15 @@ const Teacher = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('smartAssist_userType');
-    localStorage.removeItem('smartAssist_userId');
-    window.location.href = '/';
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
 
   const filteredData = dashboardData.filter(data => {
-    if (filterTutorial !== 'all' && data.progress?.tutorialId !== filterTutorial) {
+    if (filterTutorial !== 'all' && data.progress?.tutorial_id !== filterTutorial) {
       return false;
     }
-    if (filterStep !== 'all' && data.progress?.currentStep.toString() !== filterStep) {
+    if (filterStep !== 'all' && data.progress?.current_step.toString() !== filterStep) {
       return false;
     }
     return true;
@@ -186,9 +166,9 @@ const Teacher = () => {
 
   const getStepOptions = () => {
     const tutorial = tutorials.find(t => t.id === filterTutorial);
-    if (!tutorial) return [];
+    if (!tutorial || !Array.isArray(tutorial.steps)) return [];
     
-    return tutorial.steps.map((_, index) => ({
+    return (tutorial.steps as any[]).map((_, index) => ({
       value: index.toString(),
       label: `Step ${index + 1}`
     }));
@@ -216,7 +196,7 @@ const Teacher = () => {
             </div>
             <div>
               <h1 className="font-semibold">Teacher Dashboard</h1>
-              <p className="text-sm text-muted-foreground">ID: {teacherId}</p>
+              <p className="text-sm text-muted-foreground">{profile?.name || 'Loading...'}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -287,7 +267,7 @@ const Teacher = () => {
                   <p className="text-2xl font-bold">
                     {Math.round(dashboardData.reduce((sum, d) => {
                       if (!d.progress || !d.tutorial) return sum;
-                      return sum + ((d.progress.currentStep + 1) / d.tutorial.steps.length);
+                      return sum + ((d.progress.current_step + 1) / (d.tutorial.steps as any[]).length);
                     }, 0) / Math.max(dashboardData.length, 1) * 100)}%
                   </p>
                   <p className="text-sm text-muted-foreground">Avg Progress</p>
@@ -369,7 +349,7 @@ const Teacher = () => {
                       </div>
                       <div>
                         <CardTitle className="text-lg">{data.student.name}</CardTitle>
-                        <CardDescription>ID: {data.student.id}</CardDescription>
+                        <CardDescription>ID: {data.student.student_id || data.student.user_id}</CardDescription>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -394,18 +374,18 @@ const Teacher = () => {
                         <div className="space-y-2">
                           <p className="text-sm font-medium">{data.tutorial.title}</p>
                           <p className="text-sm text-muted-foreground">
-                            Step {data.progress.currentStep + 1} of {data.tutorial.steps.length}
+                            Step {data.progress.current_step + 1} of {(data.tutorial.steps as any[]).length}
                           </p>
                           <div className="w-full bg-muted rounded-full h-2">
                             <div 
                               className="bg-primary h-2 rounded-full transition-all duration-300"
                               style={{ 
-                                width: `${((data.progress.currentStep + 1) / data.tutorial.steps.length) * 100}%` 
+                                width: `${((data.progress.current_step + 1) / (data.tutorial.steps as any[]).length) * 100}%` 
                               }}
                             />
                           </div>
                           <Badge className="smart-badge-primary">
-                            {Math.round(((data.progress.currentStep + 1) / data.tutorial.steps.length) * 100)}% Complete
+                            {Math.round(((data.progress.current_step + 1) / (data.tutorial.steps as any[]).length) * 100)}% Complete
                           </Badge>
                         </div>
                       ) : (
@@ -436,9 +416,9 @@ const Teacher = () => {
                                 <DialogTitle>Code from {data.student.name}</DialogTitle>
                                 <DialogDescription>
                                   Last updated: {new Date(data.latestCode.timestamp).toLocaleString()}
-                                  {data.latestCode.isSubmission && (
-                                    <Badge className="ml-2 smart-badge-success">Submission</Badge>
-                                  )}
+                                   {data.latestCode.is_submission && (
+                                     <Badge className="ml-2 smart-badge-success">Submission</Badge>
+                                   )}
                                 </DialogDescription>
                               </DialogHeader>
                               <div className="mt-4">
@@ -464,9 +444,9 @@ const Teacher = () => {
                         <div className="space-y-2">
                           {data.helpRequests.slice(0, 2).map((request, index) => (
                             <div key={index} className="p-2 bg-muted rounded text-sm">
-                              <p className="font-medium text-xs text-muted-foreground mb-1">
-                                {new Date(request.timestamp).toLocaleTimeString()}
-                              </p>
+                               <p className="font-medium text-xs text-muted-foreground mb-1">
+                                 {new Date(request.created_at).toLocaleTimeString()}
+                               </p>
                               <p className="mb-2">{request.message}</p>
                               {request.response ? (
                                 <div className="text-success">
@@ -483,9 +463,9 @@ const Teacher = () => {
                                   <DialogContent>
                                     <DialogHeader>
                                       <DialogTitle>Respond to Help Request</DialogTitle>
-                                      <DialogDescription>
-                                        From: {data.student.name} ({data.student.id})
-                                      </DialogDescription>
+                                       <DialogDescription>
+                                         From: {data.student.name} ({data.student.student_id || data.student.user_id})
+                                       </DialogDescription>
                                     </DialogHeader>
                                     <div className="space-y-4">
                                       <div className="p-3 bg-muted rounded">

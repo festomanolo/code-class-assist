@@ -48,7 +48,9 @@ const Auth = () => {
         if (error) throw error;
 
         // Create profile after successful signup
-        await supabaseService.createProfile(name, userType, userType === 'student' ? studentId : undefined);
+        if (!isLogin) {
+          await supabaseService.createProfile(name, userType, userType === 'student' ? studentId : undefined);
+        }
         
         toast({
           title: "Account Created",

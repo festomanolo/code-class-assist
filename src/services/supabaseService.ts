@@ -60,6 +60,12 @@ class SupabaseService {
     const user = await supabase.auth.getUser();
     if (!user.data.user) throw new Error('No user found');
 
+    // Check if profile already exists
+    const existingProfile = await this.getProfile();
+    if (existingProfile) {
+      throw new Error('Profile already exists');
+    }
+
     const { data, error } = await supabase
       .from('profiles')
       .insert({
